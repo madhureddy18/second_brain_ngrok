@@ -250,6 +250,24 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onResponse(call: Call, response: Response) {
+                val contentType = response.header("Content-Type") ?: ""
+
+                // 🔥 CRITICAL FIX: HANDLE VISION REQUEST
+                if (contentType.contains("application/json")) {
+                    val json = JSONObject(response.body!!.string())
+                    if (json.optBoolean("need_image")) {
+                        captureImage { img ->
+                            if (img != null) {
+                                sendToServer(audio, img)
+                            } else {
+                                restart()
+                            }
+                        }
+                        return
+                    }
+                }
+
+                // NORMAL AUDIO RESPONSE
                 val bytes = response.body!!.bytes()
                 val reply = File(cacheDir, "reply.mp3")
                 FileOutputStream(reply).use { it.write(bytes) }
@@ -261,6 +279,36 @@ class MainActivity : AppCompatActivity() {
             }
         })
     }
+
+    private fun captureImage(onDone: (File?) -> Unit) {
+        val capture = imageCapture
+        if (capture == null) {
+            onDone(null)
+            return
+        }
+
+        val imageFile = File(cacheDir, "vision.jpg")
+
+        val options = ImageCapture.OutputFileOptions.Builder(imageFile).build()
+
+        capture.takePicture(
+            options,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    onDone(imageFile)
+                }
+
+                override fun onError(exc: ImageCaptureException) {
+                    exc.printStackTrace()
+                    onDone(null)
+                }
+            }
+        )
+    }
+
+
 
     private fun playReply(file: File) {
         if (mediaPlayer == null) mediaPlayer = MediaPlayer()
