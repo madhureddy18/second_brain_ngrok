@@ -37,13 +37,13 @@ class MainActivity : AppCompatActivity() {
     private val WAKE_WORD = "hey brain"
 
     private val serverUrl =
-        "https://flannelly-taneka-fleetingly.ngrok-free.dev/process"
+        "https://vs-766140780058.asia-south1.run.app/process"
 
     private val sampleRate = 16000
-    private val baseSilenceThreshold = 1200
-    private val silenceTimeoutMs = 2500L
+    private val baseSilenceThreshold = 1800
+    private val silenceTimeoutMs = 1500L
     private val minSpeechMs = 1200L
-    private val maxRecordMs = 25000L
+    private val maxRecordMs = 20000L
 
     private var imageCapture: ImageCapture? = null
     private var onboardingTriggered = false
