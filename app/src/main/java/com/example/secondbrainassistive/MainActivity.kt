@@ -35,15 +35,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wakeIntent: Intent
 
     private val WAKE_WORD = "hey brain"
-
     private val serverUrl =
-        "https://vs-766140780058.asia-south1.run.app/process"
+        "https://flannelly-taneka-fleetingly.ngrok-free.dev/process"
 
     private val sampleRate = 16000
-    private val baseSilenceThreshold = 1800
-    private val silenceTimeoutMs = 1500L
-    private val minSpeechMs = 1200L
-    private val maxRecordMs = 20000L
+    private val silenceTimeoutMs = 1200L
+    private val minSpeechMs = 1300L
+    private val maxRecordMs = 10000L
 
     private var imageCapture: ImageCapture? = null
     private var onboardingTriggered = false
@@ -171,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         wakeRecognizer = null
     }
 
-    // ---------------- ONBOARDING ----------------
+    // ---------------- ONBOARDING (RESTORED) ----------------
 
     private fun triggerLanguageOnboarding() {
         if (onboardingTriggered) return
@@ -194,6 +192,7 @@ class MainActivity : AppCompatActivity() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
+
             override fun onResponse(call: Call, response: Response) {
                 val reply = File(cacheDir, "reply.mp3")
                 FileOutputStream(reply).use {
@@ -204,22 +203,23 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // ---------------- CAMERA ----------------
+    // ---------------- NOISE FLOOR ----------------
 
-    private fun startCamera() {
-        val providerFuture = ProcessCameraProvider.getInstance(this)
-        providerFuture.addListener({
-            val provider = providerFuture.get()
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build()
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                this,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                imageCapture!!
-            )
-        }, ContextCompat.getMainExecutor(this))
+    private fun measureNoiseFloor(
+        recorder: AudioRecord,
+        buffer: ShortArray,
+        durationMs: Long = 400
+    ): Int {
+        val end = System.currentTimeMillis() + durationMs
+        var maxAmp = 0
+        while (System.currentTimeMillis() < end) {
+            val read = recorder.read(buffer, 0, buffer.size)
+            if (read > 0) {
+                val amp = buffer.take(read).maxOf { abs(it.toInt()) }
+                if (amp > maxAmp) maxAmp = amp
+            }
+        }
+        return maxAmp
     }
 
     // ---------------- VOICE RECORDING ----------------
@@ -255,11 +255,14 @@ class MainActivity : AppCompatActivity() {
             val pcmOut = FileOutputStream(pcmFile)
             val buffer = ShortArray(bufferSize)
 
+            recorder.startRecording()
+
+            val noiseFloor = measureNoiseFloor(recorder, buffer)
+            val silenceThreshold = noiseFloor + 1200
+
             val startTime = System.currentTimeMillis()
             var lastVoiceTime = startTime
             var firstVoiceTime = -1L
-
-            recorder.startRecording()
 
             while (true) {
                 val read = recorder.read(buffer, 0, buffer.size)
@@ -267,7 +270,7 @@ class MainActivity : AppCompatActivity() {
                     pcmOut.write(shortsToBytes(buffer, read))
                     val amp = buffer.take(read).maxOf { abs(it.toInt()) }
 
-                    if (amp > baseSilenceThreshold) {
+                    if (amp > silenceThreshold) {
                         lastVoiceTime = System.currentTimeMillis()
                         if (firstVoiceTime == -1L)
                             firstVoiceTime = System.currentTimeMillis()
@@ -277,9 +280,11 @@ class MainActivity : AppCompatActivity() {
                     val spokeEnough =
                         firstVoiceTime != -1L && (now - firstVoiceTime) > minSpeechMs
                     val silentEnough = (now - lastVoiceTime) > silenceTimeoutMs
+                    val forceStop =
+                        firstVoiceTime != -1L && (now - firstVoiceTime) > 4500
                     val tooLong = (now - startTime) > maxRecordMs
 
-                    if ((spokeEnough && silentEnough) || tooLong) break
+                    if ((spokeEnough && silentEnough) || forceStop || tooLong) break
                 }
             }
 
@@ -292,7 +297,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // ---------------- SERVER + VISION (RESTORED) ----------------
+    // ---------------- SERVER ----------------
 
     private fun sendToServer(audio: File, image: File? = null) {
         val client = OkHttpClient.Builder()
@@ -333,19 +338,17 @@ class MainActivity : AppCompatActivity() {
                     val json = JSONObject(response.body!!.string())
                     if (json.optBoolean("need_image")) {
                         captureImage { img ->
-                            if (img != null) {
-                                sendToServer(audio, img)
-                            } else {
-                                restart()
-                            }
+                            if (img != null) sendToServer(audio, img)
+                            else restart()
                         }
                         return
                     }
                 }
 
-                val bytes = response.body!!.bytes()
                 val reply = File(cacheDir, "reply.mp3")
-                FileOutputStream(reply).use { it.write(bytes) }
+                FileOutputStream(reply).use {
+                    it.write(response.body!!.bytes())
+                }
 
                 runOnUiThread {
                     status.text = "Speaking..."
@@ -353,6 +356,24 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    // ---------------- CAMERA ----------------
+
+    private fun startCamera() {
+        val providerFuture = ProcessCameraProvider.getInstance(this)
+        providerFuture.addListener({
+            val provider = providerFuture.get()
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+            provider.unbindAll()
+            provider.bindToLifecycle(
+                this,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                imageCapture!!
+            )
+        }, ContextCompat.getMainExecutor(this))
     }
 
     private fun captureImage(onDone: (File?) -> Unit) {
@@ -377,6 +398,8 @@ class MainActivity : AppCompatActivity() {
             }
         )
     }
+
+    // ---------------- PLAYBACK ----------------
 
     private fun playReply(file: File) {
         if (mediaPlayer == null) mediaPlayer = MediaPlayer()
