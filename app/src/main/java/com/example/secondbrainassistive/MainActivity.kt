@@ -2,13 +2,12 @@ package com.example.secondbrainassistive
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.*
 import android.media.audiofx.*
 import android.os.*
-import android.speech.*
 import android.speech.tts.TextToSpeech
+import android.view.KeyEvent
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -30,11 +29,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tts: TextToSpeech
     private var started = false
     private var mediaPlayer: MediaPlayer? = null
+    private lateinit var toneGen: ToneGenerator
 
-    private var wakeRecognizer: SpeechRecognizer? = null
-    private lateinit var wakeIntent: Intent
-
-    private val WAKE_WORD = "hey brain"
     private val serverUrl =
         "https://flannelly-taneka-fleetingly.ngrok-free.dev/process"
 
@@ -46,6 +42,10 @@ class MainActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var onboardingTriggered = false
 
+    // -------- VOLUME LONG PRESS --------
+    private val LONG_PRESS_MS = 1200L
+    private var volumeDownTime = 0L
+
     // ---------------- LIFECYCLE ----------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,27 +53,47 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         status = findViewById(R.id.statusText)
-        status.text = "Say Hey Brain"
+        status.text = "Long press Volume Up to talk"
+
+        toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
 
         requestPermissions()
         startCamera()
         initTTS()
-        initWakeIntent()
 
         Handler(Looper.getMainLooper()).postDelayed({
             triggerLanguageOnboarding()
-            startWakeWord()
         }, 1500)
     }
 
-    override fun onResume() {
-        super.onResume()
-        startWakeWord()
-    }
+    // ---------------- VOLUME UP LONG PRESS ----------------
 
-    override fun onPause() {
-        super.onPause()
-        stopWakeWord()
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (volumeDownTime == 0L) {
+                        volumeDownTime = System.currentTimeMillis()
+                    }
+                    return true
+                }
+
+                KeyEvent.ACTION_UP -> {
+                    val duration =
+                        System.currentTimeMillis() - volumeDownTime
+                    volumeDownTime = 0L
+
+                    if (duration >= LONG_PRESS_MS && !started) {
+                        started = true
+                        playBeep() // 🔔 Listening started
+                        status.text = "Listening..."
+                        startVoiceRecording()
+                    }
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     // ---------------- TTS ----------------
@@ -83,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             if (it == TextToSpeech.SUCCESS) {
                 tts.language = Locale.ENGLISH
                 tts.speak(
-                    "Second Brain is ready. Say Hey Brain.",
+                    "Second Brain is ready. Long press volume up to talk.",
                     TextToSpeech.QUEUE_FLUSH,
                     null,
                     null
@@ -92,84 +112,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------- WAKE WORD ----------------
-
-    private fun initWakeIntent() {
-        wakeIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-        }
-    }
-
-    private fun startWakeWord() {
-        if (started) return
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
-
-        stopWakeWord()
-
-        wakeRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        wakeRecognizer?.setRecognitionListener(object : RecognitionListener {
-
-            private fun checkWake(list: List<String>) {
-                for (text in list) {
-                    if (text.lowercase().contains(WAKE_WORD)) {
-                        stopWakeWord()
-                        started = true
-                        runOnUiThread { status.text = "Listening..." }
-                        startVoiceRecording()
-                        return
-                    }
-                }
-            }
-
-            override fun onPartialResults(bundle: Bundle) {
-                bundle.getStringArrayList(
-                    SpeechRecognizer.RESULTS_RECOGNITION
-                )?.let { checkWake(it) }
-            }
-
-            override fun onResults(bundle: Bundle) {
-                bundle.getStringArrayList(
-                    SpeechRecognizer.RESULTS_RECOGNITION
-                )?.let { checkWake(it) }
-                restartWakeWord()
-            }
-
-            override fun onError(error: Int) {
-                restartWakeWord()
-            }
-
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-
-        wakeRecognizer?.startListening(wakeIntent)
-    }
-
-    private fun restartWakeWord() {
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (!started) startWakeWord()
-        }, 500)
-    }
-
-    private fun stopWakeWord() {
-        try {
-            wakeRecognizer?.cancel()
-            wakeRecognizer?.destroy()
-        } catch (_: Exception) {}
-        wakeRecognizer = null
-    }
-
-    // ---------------- ONBOARDING (RESTORED) ----------------
+    // ---------------- ONBOARDING ----------------
 
     private fun triggerLanguageOnboarding() {
         if (onboardingTriggered) return
@@ -234,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             )
 
             val recorder = AudioRecord.Builder()
-                .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
                 .setAudioFormat(
                     AudioFormat.Builder()
                         .setSampleRate(sampleRate)
@@ -407,7 +350,10 @@ class MainActivity : AppCompatActivity() {
             reset()
             setDataSource(file.absolutePath)
             setOnPreparedListener { start() }
-            setOnCompletionListener { restart() }
+            setOnCompletionListener {
+                playBeep() // 🔔 Response finished
+                restart()
+            }
             prepareAsync()
         }
     }
@@ -415,8 +361,7 @@ class MainActivity : AppCompatActivity() {
     private fun restart() {
         runOnUiThread {
             started = false
-            status.text = "Say Hey Brain"
-            restartWakeWord()
+            status.text = "Long press Volume Up to talk"
         }
     }
 
@@ -435,6 +380,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------- UTILS ----------------
+
+    private fun playBeep() {
+        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+    }
 
     private fun shortsToBytes(data: ShortArray, len: Int): ByteArray {
         val b = ByteArray(len * 2)
