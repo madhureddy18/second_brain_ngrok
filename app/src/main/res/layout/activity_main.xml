@@ -2,69 +2,44 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0E0E1A"
+    android:background="@color/bg_dark"
     android:padding="24dp">
 
-    <!-- App title -->
+    <!-- App Name -->
     <TextView
         android:id="@+id/titleText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Second Brain Assistive AI"
-        android:textColor="#FFFFFF"
-        android:textSize="26sp"
+        android:text="Second Brain"
+        android:textSize="24sp"
         android:textStyle="bold"
+        android:textColor="@color/text_primary"
         android:layout_centerHorizontal="true"
         android:layout_marginTop="32dp" />
 
-    <!-- Subtitle -->
-    <TextView
-        android:id="@+id/helpText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Tap the microphone and speak"
-        android:textColor="#BBBBBB"
-        android:textSize="16sp"
-        android:layout_below="@id/titleText"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="12dp"/>
-
-    <!-- Big microphone button -->
+    <!-- BIG MIC BUTTON -->
     <Button
-        android:id="@+id/statusText"
-        android:layout_width="260dp"
-        android:layout_height="260dp"
-        android:layout_centerInParent="true"
+        android:id="@+id/micButton"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
         android:text="🎤"
         android:textSize="64sp"
-        android:textColor="#FFFFFF"
         android:background="@drawable/mic_button"
-        android:contentDescription="Tap to speak"
+        android:layout_centerInParent="true"
+        android:contentDescription="Speak"
         android:focusable="true"
-        android:clickable="true" />
+        android:clickable="false" />
 
-    <!-- Status message -->
+    <!-- STATUS TEXT -->
     <TextView
-        android:id="@+id/stateText"
+        android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Ready"
-        android:textColor="#00FFCC"
+        android:text="Long press Volume Up to talk"
         android:textSize="18sp"
-        android:layout_below="@id/statusText"
+        android:textColor="@color/text_accent"
+        android:layout_below="@id/micButton"
         android:layout_centerHorizontal="true"
-        android:layout_marginTop="24dp"/>
-
-    <!-- Bottom hint -->
-    <TextView
-        android:id="@+id/bottomHint"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Double tap the mic to ask anything"
-        android:textColor="#888888"
-        android:textSize="14sp"
-        android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="24dp"/>
+        android:layout_marginTop="24dp" />
 
 </RelativeLayout>

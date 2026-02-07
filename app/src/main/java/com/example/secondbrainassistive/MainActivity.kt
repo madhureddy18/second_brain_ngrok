@@ -7,6 +7,7 @@ import android.media.*
 import android.media.audiofx.*
 import android.os.*
 import android.speech.tts.TextToSpeech
+import android.widget.Button
 import android.view.KeyEvent
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -27,12 +28,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
     private lateinit var tts: TextToSpeech
+
+    private lateinit var micButton: Button
+
     private var started = false
     private var mediaPlayer: MediaPlayer? = null
     private lateinit var toneGen: ToneGenerator
 
     private val serverUrl =
-        "https://flannelly-taneka-fleetingly.ngrok-free.dev/process"
+        "https://vs-766140780058.asia-south1.run.app/process"
 
     private val sampleRate = 16000
     private val silenceTimeoutMs = 1200L
@@ -53,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         status = findViewById(R.id.statusText)
+        micButton = findViewById<Button>(R.id.micButton)
         status.text = "Long press Volume Up to talk"
 
         toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
@@ -87,6 +92,7 @@ class MainActivity : AppCompatActivity() {
                         started = true
                         playBeep() // 🔔 Listening started
                         status.text = "Listening..."
+                        micButton.setBackgroundResource(R.drawable.mic_button)
                         startVoiceRecording()
                     }
                     return true
