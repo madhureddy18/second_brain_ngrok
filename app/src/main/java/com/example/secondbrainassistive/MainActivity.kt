@@ -9,6 +9,8 @@ import android.os.*
 import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.view.KeyEvent
+import android.view.View
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -28,15 +30,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
     private lateinit var tts: TextToSpeech
-
     private lateinit var micButton: Button
+    private lateinit var waveLayout: LinearLayout
+    private lateinit var eqLayout: LinearLayout
+    private lateinit var infoCard: TextView
+    private lateinit var langBadge: TextView
 
+    private var onboardingTriggered = false
+    private lateinit var prefs: android.content.SharedPreferences
     private var started = false
     private var mediaPlayer: MediaPlayer? = null
     private lateinit var toneGen: ToneGenerator
 
     private val serverUrl =
-        "https://vs-766140780058.asia-south1.run.app/process"
+        "https://netravaani-517230782740.us-central1.run.app/process"
 
     private val sampleRate = 16000
     private val silenceTimeoutMs = 1200L
@@ -44,9 +51,7 @@ class MainActivity : AppCompatActivity() {
     private val maxRecordMs = 10000L
 
     private var imageCapture: ImageCapture? = null
-    private var onboardingTriggered = false
 
-    // -------- VOLUME LONG PRESS --------
     private val LONG_PRESS_MS = 1200L
     private var volumeDownTime = 0L
 
@@ -57,18 +62,88 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         status = findViewById(R.id.statusText)
-        micButton = findViewById<Button>(R.id.micButton)
-        status.text = "Long press Volume Up to talk"
+        micButton = findViewById(R.id.micButton)
+        waveLayout = findViewById(R.id.waveLayout)
+        eqLayout = findViewById(R.id.eqLayout)
+        infoCard = findViewById(R.id.infoCard)
+        langBadge = findViewById(R.id.langBadge)
 
         toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+        prefs = getSharedPreferences("second_brain", MODE_PRIVATE)
 
         requestPermissions()
         startCamera()
         initTTS()
 
+        setStateIdle()
+
         Handler(Looper.getMainLooper()).postDelayed({
             triggerLanguageOnboarding()
         }, 1500)
+    }
+
+    // ---------------- UI STATES ----------------
+
+    private fun setStateIdle() {
+        runOnUiThread {
+            started = false
+            micButton.text = "🎤"
+            micButton.setBackgroundResource(R.drawable.mic_button)
+            status.text = "Long press Volume Up to talk"
+            status.setTextColor(getColor(R.color.text_accent))
+            waveLayout.visibility = View.GONE
+            eqLayout.visibility = View.GONE
+            infoCard.visibility = View.GONE
+            langBadge.visibility = View.GONE
+        }
+    }
+
+    private fun setStateListening() {
+        runOnUiThread {
+            micButton.text = "🎤"
+            micButton.setBackgroundResource(R.drawable.mic_listening)
+            status.text = "Listening..."
+            status.setTextColor(getColor(R.color.mic_listening))
+            waveLayout.visibility = View.VISIBLE
+            eqLayout.visibility = View.GONE
+            infoCard.visibility = View.GONE
+            val lang = prefs.getString("lang", "") ?: ""
+            if (lang.isNotEmpty()) {
+                langBadge.text = "🌐 ${lang.uppercase()}"
+                langBadge.visibility = View.VISIBLE
+            } else {
+                langBadge.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun setStateSpeaking() {
+        runOnUiThread {
+            micButton.text = "🔊"
+            micButton.setBackgroundResource(R.drawable.mic_speaking)
+            status.text = "Speaking..."
+            status.setTextColor(getColor(R.color.text_accent))
+            waveLayout.visibility = View.GONE
+            eqLayout.visibility = View.VISIBLE
+            val lang = prefs.getString("lang", "en") ?: "en"
+            langBadge.text = "🌐 ${lang.uppercase()}"
+            langBadge.visibility = View.VISIBLE
+        }
+    }
+
+    private fun setStateVision() {
+        runOnUiThread {
+            micButton.text = "📷"
+            micButton.setBackgroundResource(R.drawable.mic_vision)
+            status.text = "Capturing image..."
+            status.setTextColor(getColor(R.color.badge_text))
+            waveLayout.visibility = View.GONE
+            eqLayout.visibility = View.GONE
+            infoCard.text = "Vision mode active.\nDescribe object detected"
+            infoCard.visibility = View.VISIBLE
+            langBadge.text = "👁 Vision intent"
+            langBadge.visibility = View.VISIBLE
+        }
     }
 
     // ---------------- VOLUME UP LONG PRESS ----------------
@@ -82,17 +157,13 @@ class MainActivity : AppCompatActivity() {
                     }
                     return true
                 }
-
                 KeyEvent.ACTION_UP -> {
-                    val duration =
-                        System.currentTimeMillis() - volumeDownTime
+                    val duration = System.currentTimeMillis() - volumeDownTime
                     volumeDownTime = 0L
-
                     if (duration >= LONG_PRESS_MS && !started) {
                         started = true
-                        playBeep() // 🔔 Listening started
-                        status.text = "Listening..."
-                        micButton.setBackgroundResource(R.drawable.mic_button)
+                        playBeep()
+                        setStateListening()
                         startVoiceRecording()
                     }
                     return true
@@ -140,14 +211,28 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {}
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    tts.speak(
+                        "Could not connect to server. Please check your internet.",
+                        TextToSpeech.QUEUE_FLUSH,
+                        null,
+                        null
+                    )
+                }
+            }
 
             override fun onResponse(call: Call, response: Response) {
                 val reply = File(cacheDir, "reply.mp3")
                 FileOutputStream(reply).use {
                     it.write(response.body!!.bytes())
                 }
-                runOnUiThread { playReply(reply) }
+                runOnUiThread {
+                    // Show onboarding prompt in info card
+                    infoCard.text = "Say \"English\", \"Hindi\" or \"Telugu\" to set language"
+                    infoCard.visibility = View.VISIBLE
+                    playReply(reply)
+                }
             }
         })
     }
@@ -261,6 +346,7 @@ class MainActivity : AppCompatActivity() {
                 "speech.wav",
                 audio.asRequestBody("audio/wav".toMediaType())
             )
+            .addFormDataPart("lang", prefs.getString("lang", "") ?: "")
 
         if (image != null) {
             bodyBuilder.addFormDataPart(
@@ -277,18 +363,33 @@ class MainActivity : AppCompatActivity() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                restart()
+                runOnUiThread {
+                    status.text = "No internet connection"
+                    status.setTextColor(getColor(R.color.mic_listening))
+                    tts.speak(
+                        "No internet connection. Please check your network.",
+                        TextToSpeech.QUEUE_FLUSH,
+                        null,
+                        null
+                    )
+                }
+                Handler(Looper.getMainLooper()).postDelayed({ setStateIdle() }, 3000)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val contentType = response.header("Content-Type") ?: ""
+                val detectedLang = response.header("X-Lang") ?: ""
+                if (detectedLang.isNotEmpty()) {
+                    prefs.edit().putString("lang", detectedLang).apply()
+                }
 
                 if (contentType.contains("application/json")) {
                     val json = JSONObject(response.body!!.string())
                     if (json.optBoolean("need_image")) {
+                        setStateVision()
                         captureImage { img ->
                             if (img != null) sendToServer(audio, img)
-                            else restart()
+                            else setStateIdle()
                         }
                         return
                     }
@@ -300,7 +401,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 runOnUiThread {
-                    status.text = "Speaking..."
+                    setStateSpeaking()
                     playReply(reply)
                 }
             }
@@ -326,9 +427,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun captureImage(onDone: (File?) -> Unit) {
-        val capture = imageCapture ?: run {
-            onDone(null); return
-        }
+        val capture = imageCapture ?: run { onDone(null); return }
 
         val imageFile = File(cacheDir, "vision.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(imageFile).build()
@@ -340,7 +439,6 @@ class MainActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     onDone(imageFile)
                 }
-
                 override fun onError(exc: ImageCaptureException) {
                     onDone(null)
                 }
@@ -357,17 +455,10 @@ class MainActivity : AppCompatActivity() {
             setDataSource(file.absolutePath)
             setOnPreparedListener { start() }
             setOnCompletionListener {
-                playBeep() // 🔔 Response finished
-                restart()
+                playBeep()
+                setStateIdle()
             }
             prepareAsync()
-        }
-    }
-
-    private fun restart() {
-        runOnUiThread {
-            started = false
-            status.text = "Long press Volume Up to talk"
         }
     }
 
@@ -395,8 +486,7 @@ class MainActivity : AppCompatActivity() {
         val b = ByteArray(len * 2)
         for (i in 0 until len) {
             b[i * 2] = (data[i].toInt() and 0xFF).toByte()
-            b[i * 2 + 1] =
-                ((data[i].toInt() shr 8) and 0xFF).toByte()
+            b[i * 2 + 1] = ((data[i].toInt() shr 8) and 0xFF).toByte()
         }
         return b
     }
